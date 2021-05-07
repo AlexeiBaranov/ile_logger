@@ -16,6 +16,8 @@ log_it(l, 0, "message: %s", "123");
 close_logger(l);
 ```
 
+See rlogger.rpgle for RPGLE example
+
 The logger service program will automatically add additional fields required by the syslog protocol. Logged message will shown as follows:
 
 syslog:
