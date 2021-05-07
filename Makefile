@@ -1,4 +1,4 @@
-.PHONY: all package
+.PHONY: all
 
 OBJ=logger.o
 
