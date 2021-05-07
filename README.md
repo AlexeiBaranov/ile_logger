@@ -20,7 +20,7 @@ close_logger(l);
 
 ***See rlogger.rpgle for RPGLE example***
 
-The Logger service program will automatically add additional details required by the syslog protocol. Logged message will shown as follows:
+The Logger service program will automatically enhance message with other details required by the syslog protocol. Logged message will shown as follows:
 
 in syslog files:
 ```
