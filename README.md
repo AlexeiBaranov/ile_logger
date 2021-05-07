@@ -16,3 +16,5 @@ log_it(l, 0, "message: %s", "123");
 close_logger(l);
 ```
 
+Logger.zip contains saved SRVPGM object I2RLOGGER. To restore - put it to IFS, unzip, upload to SAVF, then use RSTOBJ.
+
