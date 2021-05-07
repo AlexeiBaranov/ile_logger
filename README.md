@@ -28,7 +28,7 @@ May  7 16:40:34 127.0.0.1 local0:panic|emerg  2021-05-07T16:40:34.017624+03:00 A
 ```
 in joblog/stdout/stderr:
 ```
-<128> 2021-05-07T16:25:29.336976+03:00 AS400:494498/USRA/QP0ZSPWP test 0x000000A9 - - message: 123                               
+<128> 2021-05-07T16:25:29.336976+03:00 AS400:494498/USRA/QP0ZSPWP test 0x000000A9 - - message: 123
 ```
 ## Binaries
 Logger.zip contains saved SRVPGM object LOGGER. To restore - put it to IFS, unzip, upload to SAVF, then use RSTOBJ.
