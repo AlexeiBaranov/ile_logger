@@ -1,0 +1,8 @@
+STRPGMEXP PGMLVL(*CURRENT) SIGNATURE('LOGGER V1.0.0') LVLCHK(*YES)
+
+   EXPORT SYMBOL('open_logger')
+   EXPORT SYMBOL('log_it')
+   EXPORT SYMBOL('close_logger')
+   EXPORT SYMBOL('logger_error')
+
+ENDPGMEXP 
