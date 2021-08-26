@@ -52,6 +52,7 @@ void *open_logger(
 	char *address,
 	char *port);
 
+#define LOG_IT(logger, priority, ...) if(*(int *)(logger)>=(priority)) log_it((logger), (priority), __VA_ARGS__)
 int log_it(void *logger, int priority, char *message, ...);
 
 void close_logger(void *logger);

@@ -32,6 +32,7 @@ static iconv_t E2U;
 
 typedef struct logger logger;
 struct logger {
+   enum logger_severity severity;
    pthread_mutex_t      lock;
    int                  log_fd;
    char                *outbuffer;
@@ -43,7 +44,6 @@ struct logger {
    char                *client;
 
    enum logger_facility facility;
-   enum logger_severity severity;
    enum logger_protocol protocol;
    char                *address;
    char                *port;
@@ -192,8 +192,11 @@ int __message(logger *l, int priority, char *message, va_list args) {
       ib = (unsigned char *)l->outbuffer + meta_length;
    }
    while (1) {
+      va_list args_copy;
+      va_copy(args_copy, args);
       n = vsnprintf(l->outbuffer + meta_length, l->buflength - meta_length, message, args);
-      if (n == l->buflength - meta_length) {
+      if (n == l->buflength - meta_length - 1) {
+         va_copy(args, args_copy);
          l->buflength = (l->buflength + 1024) + 1;
          l->outbuffer = realloc(l->outbuffer, l->buflength);
          if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) l->outbuffer_u = realloc(l->outbuffer_u, l->buflength*4+1);
@@ -220,28 +223,31 @@ int __message(logger *l, int priority, char *message, va_list args) {
 }
 
 static int __write(logger *l) {
-   if (l->log_fd < 0) return 1;
    switch (l->protocol) {
    case LOGGER_UDP: {
+      if (l->log_fd < 0) return 1;
       if (send(l->log_fd, l->outbuffer_u, l->ulength, 0) == -1) {
          __close(l);
          return 1;
       }
    } break;
    case LOGGER_TCP: {
+      if (l->log_fd < 0) return 1;
       if (write(l->log_fd, l->outbuffer_u, l->ulength) == -1) {
          __close(l);
          return 1;
       }
    } break;
    case LOGGER_STDOUT: {
-      fprintf(stdout, "%s\n", l->outbuffer);
+      int rc = fprintf(stdout, "%s\n", l->outbuffer);
+      return rc==-1;
    } break;
    case LOGGER_STDERR: {
-      fprintf(stderr, "%s\n", l->outbuffer);
+      int rc = fprintf(stderr, "%s\n", l->outbuffer);
+      return rc==-1;
    } break;
    case LOGGER_JOBLOG: {
-      Qp0zLprintf("%s\n", l->outbuffer);
+      return Qp0zLprintf("%s\n", l->outbuffer)==-1;
    } break;
    }
    return 0;
