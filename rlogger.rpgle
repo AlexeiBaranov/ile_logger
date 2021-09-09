@@ -115,14 +115,14 @@ D rc              s             10I 0
  * Mainline                                                          
  ********************************************************************
 C                   Eval      Handler = open_logger('RPGLE':         
-C                                                   16:              
-C                                                   0:               
-C                                                   0:          
+C                                                   LOCAL0:              
+C                                                   UDP:               
+C                                                   DEBUG:          
 C                                                   'localhost':
 C                                                   '514')      
                                                                 
 C                   Eval      rc = log_it(Handler:              
-C                                         0:                    
+C                                         EMERG:                    
 C                                         'Message: %s':        
 C                                         'Hi from RPGLE')      
                                                                 
