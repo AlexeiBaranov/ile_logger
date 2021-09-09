@@ -116,8 +116,8 @@ D rc              s             10I 0
  ********************************************************************
 C                   Eval      Handler = open_logger('RPGLE':         
 C                                                   LOCAL0:              
-C                                                   UDP:               
-C                                                   DEBUG:          
+C                                                   DEBUG:               
+C                                                   UDP:          
 C                                                   'localhost':
 C                                                   '514')      
                                                                 
