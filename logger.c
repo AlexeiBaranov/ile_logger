@@ -208,6 +208,7 @@ int __message(logger *l, int priority, char *message, va_list args) {
       ib = l->outbuffer + il;
       ob = l->outbuffer_u + ol;
       il = n;
+      ol = n*4+1;
       if (n) {
          iconv(E2U, &ib, &il, &ob, &ol);
       }
