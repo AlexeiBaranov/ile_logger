@@ -9,7 +9,7 @@
  *  (see https://www.i2rest.com/index.php/I2Rest_with_syslog)                 
  *                                                                            
  *  Then:                                                                     
- *  CALL YOURLIB/LOGGER                                                       
+ *  CALL YOURLIB/RLOGGER                                                       
  *                                                                            
  *  To change logging destination, use other parameters in create_logger      
  *                                                                            
