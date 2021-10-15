@@ -18,7 +18,7 @@ log_it(l, 0, "message: %s", "123");
 close_logger(l);
 ```
 
-***See rlogger.rpgle for RPGLE example***
+***See [rlogger.rpgle](https://github.com/AlexeiBaranov/ile_logger/blob/main/rlogger.rpgle) for RPGLE example***
 
 The Logger service program will automatically enhance message with other details required by the syslog protocol. Logged message will shown as follows:
 
