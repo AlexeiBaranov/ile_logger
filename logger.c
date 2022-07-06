@@ -25,21 +25,12 @@
 #include <qtqiconv.h>
 #include <iconv.h>   
 
-
 pthread_once_t  onceControl = PTHREAD_ONCE_INIT;
-static int is_multithreaded = 0;
 static iconv_t E2U;
 
 typedef struct logger logger;
 struct logger {
    enum logger_severity severity;
-   pthread_mutex_t      lock;
-   int                  log_fd;
-   char                *outbuffer;
-   char                *outbuffer_u;
-   int                  buflength;
-   int                  ulength;
-   int                  elength;
    char                *ident;
    char                *client;
 
@@ -49,25 +40,50 @@ struct logger {
    char                *port;
    _RTX_ENTRY           destroy_proc;
    _POINTER             this;
-   char                *error;
+
+   pthread_key_t        localKey;
 }; 
+
+typedef struct loggerThreadLocal loggerThreadLocal;
+struct loggerThreadLocal {
+   int                  log_fd;
+   char                *outbuffer;
+   char                *outbuffer_u;
+   int                  buflength;
+   int                  ulength;
+   int                  elength;
+   char                *error;
+   int                  num_connection_tries;
+};
 
 static void *test_thread(void *data) {
    return NULL;
+}
+
+void localDestructor(void *value) {
+   loggerThreadLocal *ptr = value;
+   if(ptr->log_fd>=0) close(ptr->log_fd);
+   if (ptr->outbuffer) free(ptr->outbuffer);
+   if (ptr->outbuffer_u) free(ptr->outbuffer_u);
+   free(ptr);
+}
+
+loggerThreadLocal *getLocal(logger *l) {
+   loggerThreadLocal *ptr;
+   if((ptr= pthread_getspecific(l->localKey)) == NULL) {
+      ptr = malloc(sizeof(loggerThreadLocal));
+      memset(ptr, 0, sizeof(loggerThreadLocal));
+      ptr->log_fd=-1;
+      ptr->num_connection_tries=10;
+      pthread_setspecific(l->localKey, ptr);
+   }
+   return ptr;
 }
 
 static void init_logger(void)
 {
    QtqCode_T from, to;
 
-   pthread_t tid;
-   if (pthread_create(&tid, NULL, (void *(*)(void *))test_thread, NULL)) {
-      is_multithreaded = 0;
-   }
-   else {
-      is_multithreaded = 1;
-      pthread_join(tid, NULL);
-   }
    memset(&to, 0, sizeof(to));
    memset(&from, 0, sizeof(from));
    from.CCSID = 0; to.CCSID = 1208;
@@ -75,19 +91,23 @@ static void init_logger(void)
 }  
 
 static int __close(logger *l) {
+
+   loggerThreadLocal *lcl = getLocal(l);
+
    switch (l->protocol) {
    case LOGGER_UDP:
    case LOGGER_TCP: {
-      if (l->log_fd >= 0) close(l->log_fd);
+      if (lcl->log_fd >= 0) close(lcl->log_fd);
    } break;
    }
-   l->log_fd = -1;
+   lcl->log_fd = -1;
    return 0;
 }
 
 static int __connect(logger *l) {
+   loggerThreadLocal *lcl = getLocal(l);
 
-   if (l->log_fd >= 0) __close(l);
+   if (lcl->log_fd >= 0) __close(l);
    switch (l->protocol) {
    case LOGGER_UDP: 
    case LOGGER_TCP: {
@@ -101,36 +121,36 @@ static int __connect(logger *l) {
       hints.ai_socktype = (l->protocol == LOGGER_TCP ? SOCK_STREAM : SOCK_DGRAM);
       error = getaddrinfo(l->address, l->port, &hints, &res0);
       if (error) {
-         l->error = gai_strerror(error);
+         lcl->error = gai_strerror(error);
       }
 
       for (res = res0; res; res = res->ai_next) {
-         l->error = NULL;
-         l->log_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-         if (l->log_fd < 0) {
-            l->error = "Unable to open socket";
+         lcl->error = NULL;
+         lcl->log_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+         if (lcl->log_fd < 0) {
+            lcl->error = "Unable to open socket";
             continue;
          }
-         if (connect(l->log_fd, res->ai_addr, res->ai_addrlen) < 0) {
-            l->error = "Unable to connect socket";
-            close(l->log_fd);
-            l->log_fd = -1;
+         if (connect(lcl->log_fd, res->ai_addr, res->ai_addrlen) < 0) {
+            lcl->error = "Unable to connect socket";
+            close(lcl->log_fd);
+            lcl->log_fd = -1;
             continue;
          }
          break;
       }
       freeaddrinfo(res0);
       so = 1;
-      if (setsockopt(l->log_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&so, sizeof(int)) == -1) {
-         close(l->log_fd);
-         l->log_fd = -1;
-         l->error = "Unable to setsockopt SO_REUSEADDR";
+      if (setsockopt(lcl->log_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&so, sizeof(int)) == -1) {
+         close(lcl->log_fd);
+         lcl->log_fd = -1;
+         lcl->error = "Unable to setsockopt SO_REUSEADDR";
       }
       so = 1024 * 1024;
-      if (setsockopt(l->log_fd, SOL_SOCKET, SO_SNDBUF, (void *)&so, sizeof(int)) == -1) {
-         close(l->log_fd);
-         l->log_fd = -1;
-         l->error = "Unable to setsockopt SO_SNDBUF 1024*1024";
+      if (setsockopt(lcl->log_fd, SOL_SOCKET, SO_SNDBUF, (void *)&so, sizeof(int)) == -1) {
+         close(lcl->log_fd);
+         lcl->log_fd = -1;
+         lcl->error = "Unable to setsockopt SO_SNDBUF 1024*1024";
       }
    } break;
    case LOGGER_STDOUT:
@@ -138,6 +158,7 @@ static int __connect(logger *l) {
    case LOGGER_JOBLOG:
    break;
    }
+   if(lcl->log_fd>=0) lcl->num_connection_tries=10;
    return 0;
 }
 
@@ -156,14 +177,16 @@ int __message(logger *l, int priority, char *message, va_list args) {
    unsigned char *ib, *ob;
    
    int tid = pthread_getthreadid_np().intId.lo;
+
+   loggerThreadLocal *lcl = getLocal(l);
    
-   if (!l->buflength) {
-      l->buflength = 1025;
-      l->outbuffer = malloc(l->buflength);
-      if(l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) l->outbuffer_u = malloc(l->buflength * 4 + 1);
+   if (!lcl->buflength) {
+      lcl->buflength = 1025;
+      lcl->outbuffer = malloc(lcl->buflength);
+      if(l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) lcl->outbuffer_u = malloc(lcl->buflength * 4 + 1);
    }
 
-   l->ulength = 0;
+   lcl->ulength = 0;
    gettimeofday(&tv, &tzp);
    nowtime = tv.tv_sec;
    localtime_r(&nowtime, &nowtm);
@@ -174,81 +197,89 @@ int __message(logger *l, int priority, char *message, va_list args) {
    strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d-%H:%M:%S", &nowtm);
    sprintf(buf, "%s.%06lu%c%02d:%02d", tmbuf, tv.tv_usec, tzs, tzh, tzm);
    
-   meta_length = sprintf(l->outbuffer, "<%d> %-10.10sT%-21.21s %s %s 0x%.8X - - ", l->facility << 3 + priority, buf, buf + 11, l->client, l->ident, tid);
+   meta_length = sprintf(lcl->outbuffer, "<%d> %-10.10sT%-21.21s %s %s 0x%.8X - - ", l->facility << 3 + priority, buf, buf + 11, l->client, l->ident, tid);
    il = meta_length;
-   ib = (unsigned char *)l->outbuffer;
+   ib = (unsigned char *)lcl->outbuffer;
    if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) {
-      ob = (unsigned char *)l->outbuffer_u;
-      ol = l->buflength * 4 + 1;
+      ob = (unsigned char *)lcl->outbuffer_u;
+      ol = lcl->buflength * 4 + 1;
       iconv(E2U, &ib, &il, &ob, &ol);
       *ob++ = '\xEF'; *ob++ = '\xBB'; *ob++ = '\xBF';
-      ol = ob - l->outbuffer_u;
+      ol = ob - lcl->outbuffer_u;
       *ib++ = ' '; *ib++ = ' '; *ib++ = ' ';
-      il = ib - l->outbuffer;
+      il = ib - lcl->outbuffer;
       meta_length += 3;
    }
    else
    {
-      ib = (unsigned char *)l->outbuffer + meta_length;
+      ib = (unsigned char *)lcl->outbuffer + meta_length;
    }
    while (1) {
       va_list args_copy;
       va_copy(args_copy, args);
-      n = vsnprintf(l->outbuffer + meta_length, l->buflength - meta_length, message, args);
-      if (n == l->buflength - meta_length - 1) {
+      n = vsnprintf(lcl->outbuffer + meta_length, lcl->buflength - meta_length, message, args);
+      if (n == lcl->buflength - meta_length - 1) {
          va_copy(args, args_copy);
-         l->buflength = (l->buflength + 1024) + 1;
-         l->outbuffer = realloc(l->outbuffer, l->buflength);
-         if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) l->outbuffer_u = realloc(l->outbuffer_u, l->buflength*4+1);
+         lcl->buflength = (lcl->buflength + 1024) + 1;
+         lcl->outbuffer = realloc(lcl->outbuffer, lcl->buflength);
+         if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) lcl->outbuffer_u = realloc(lcl->outbuffer_u, lcl->buflength*4+1);
       }
       else break;
    }
 
    if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) {
-      ib = l->outbuffer + il;
-      ob = l->outbuffer_u + ol;
+      ib = lcl->outbuffer + il;
+      ob = lcl->outbuffer_u + ol;
       il = n;
       ol = n*4+1;
       if (n) {
          iconv(E2U, &ib, &il, &ob, &ol);
       }
 
-      l->elength = ib - l->outbuffer;
-      l->ulength = ob - l->outbuffer_u;
+      lcl->elength = ib - lcl->outbuffer;
+      lcl->ulength = ob - lcl->outbuffer_u;
    }
    else
    {
-      l->elength = meta_length + n;
+      lcl->elength = meta_length + n;
    }
    return 0;
 }
 
 static int __write(logger *l) {
+
+   loggerThreadLocal *lcl = getLocal(l);
+
+   if(lcl->log_fd<0 && lcl->num_connection_tries) {
+      lcl->num_connection_tries--;
+      __connect(l);
+   }
+
    switch (l->protocol) {
    case LOGGER_UDP: {
-      if (l->log_fd < 0) return 1;
-      if (send(l->log_fd, l->outbuffer_u, l->ulength, 0) == -1) {
+      if (lcl->log_fd < 0) return 1;
+      if (send(lcl->log_fd, lcl->outbuffer_u, lcl->ulength, 0) == -1) {
          __close(l);
          return 1;
       }
    } break;
    case LOGGER_TCP: {
-      if (l->log_fd < 0) return 1;
-      if (write(l->log_fd, l->outbuffer_u, l->ulength) == -1) {
+      if (lcl->log_fd < 0) return 1;
+      if (write(lcl->log_fd, lcl->outbuffer_u, lcl->ulength) == -1) {
          __close(l);
          return 1;
       }
    } break;
    case LOGGER_STDOUT: {
-      int rc = fprintf(stdout, "%s\n", l->outbuffer);
+      int rc = fprintf(stdout, "%s\n", lcl->outbuffer);
       return rc==-1;
    } break;
    case LOGGER_STDERR: {
-      int rc = fprintf(stderr, "%s\n", l->outbuffer);
+      int rc = fprintf(stderr, "%s\n", lcl->outbuffer);
       return rc==-1;
    } break;
    case LOGGER_JOBLOG: {
-      return Qp0zLprintf("%s\n", l->outbuffer)==-1;
+      return Qp0zLprintf("%s\n", lcl->outbuffer)==-1;
    } break;
    }
    return 0;
@@ -259,37 +290,34 @@ int log_it(logger *l, int priority, char *message, ...) {
 
    if (priority > l->severity) return 0;
 
-   if (is_multithreaded) pthread_mutex_lock(&l->lock);
    va_start(va_args, message);
    __message(l, priority, message, va_args);
    va_end(va_args);
    if (__write(l)) {
-      Qp0zLprintf("%s\n", l->outbuffer); // write to joblog
+      loggerThreadLocal *lcl = getLocal(l);
+      Qp0zLprintf("%s\n", lcl->outbuffer); // write to joblog
       return 1;
    }
-   if (is_multithreaded) pthread_mutex_unlock(&l->lock);
+   
    return 0;
 }
 
 static void destroy_logger(void **pl) {
    logger *l = *pl;
    long long e_c = 0;
-
+   loggerThreadLocal *lcl;
    CEEUTX(&(l->destroy_proc), (void *)&e_c);
 
-   if (is_multithreaded) pthread_mutex_trylock(&l->lock);
-
    __close(l);
+   lcl = getLocal(l);
+   pthread_setspecific(l->localKey, NULL);
+   localDestructor(lcl);
+
+
    if (l->address) free(l->address);
    if (l->port) free(l->port);
    if (l->ident) free(l->ident);
    if (l->client) free(l->client);
-   if (l->outbuffer) free(l->outbuffer);
-   if (l->outbuffer_u) free(l->outbuffer_u);
-   if (is_multithreaded) {
-      pthread_mutex_unlock(&l->lock);
-      pthread_mutex_destroy(&l->lock);
-   }
    free(l);
 }
 
@@ -340,11 +368,9 @@ logger *open_logger(
    l->facility = facility;
    l->severity = severity;
    l->protocol = protocol;
-   
-   if (is_multithreaded) {
-      pthread_mutex_init(&l->lock, NULL);
-   }
 
+   pthread_key_create(&l->localKey, localDestructor);
+   
    l->destroy_proc = destroy_logger;
    l->this = l;
    
@@ -359,7 +385,8 @@ logger *open_logger(
 }
 
 char *logger_error(logger *l) {
-   return l->error;
+   loggerThreadLocal *lcl = getLocal(l);
+   return lcl->error;
 }
 
 void close_logger(logger *l) {
