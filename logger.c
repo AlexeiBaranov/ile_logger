@@ -197,7 +197,7 @@ int __message(logger *l, int priority, char *message, va_list args) {
    strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d-%H:%M:%S", &nowtm);
    sprintf(buf, "%s.%06lu%c%02d:%02d", tmbuf, tv.tv_usec, tzs, tzh, tzm);
    
-   meta_length = sprintf(lcl->outbuffer, "<%d> %-10.10sT%-21.21s %s %s 0x%.8X - - ", l->facility << 3 + priority, buf, buf + 11, l->client, l->ident, tid);
+   meta_length = sprintf(lcl->outbuffer, "<%d> %-10.10sT%-21.21s %s %s 0x%.8X - - ", (l->facility << 3) + priority, buf, buf + 11, l->client, l->ident, tid);
    il = meta_length;
    ib = (unsigned char *)lcl->outbuffer;
    if (l->protocol == LOGGER_UDP || l->protocol == LOGGER_TCP) {
